@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, LargeBinary
 from sqlalchemy.orm import declarative_base
 from database import engine
 
@@ -13,6 +13,7 @@ class User(Base):
     first_name = Column(String)
     last_name = Column(String)
     hashed_password = Column(String)
+    avatar = Column(LargeBinary, nullable=True)
 
 
 Base.metadata.create_all(bind=engine)
