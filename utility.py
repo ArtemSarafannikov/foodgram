@@ -4,6 +4,7 @@ from jose import jwt, JWTError
 from typing import Optional
 
 import secrets
+import base64
 import string
 
 SECRET_KEY = "41e9d135b735a3a92831c7918f011c0048bb927e9412ce3452b77d8096c6e331"
@@ -26,7 +27,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -36,3 +37,12 @@ def generate_password(length=12):
     alphabet = string.ascii_letters + string.digits
     password = ''.join(secrets.choice(alphabet) for _ in range(length))
     return password
+
+
+def decode_image(b64_avatar):
+    return base64.b64decode(b64_avatar.split(',')[1])
+
+
+def encode_image(byte_avatar):
+    avatar = base64.b64encode(byte_avatar).decode("utf-8") if byte_avatar else ''
+    return f"data:image/png;base64,{avatar}" if avatar else ''

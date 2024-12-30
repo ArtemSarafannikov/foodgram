@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile, Query
 from fastapi.security import OAuth2PasswordBearer
 from database import SessionLocal, get_db
 from utility import *
+from typing import List
 
 import base64
 import models
@@ -9,6 +10,7 @@ import schemes
 
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/api/auth/token/login/')
+
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: SessionLocal = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -28,6 +30,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: SessionLocal
         raise credentials_exception
     return user
 
+
 @app.post('/api/auth/token/login/', response_model=schemes.Token)
 def login(login_request: schemes.LoginRequest, db: SessionLocal = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == login_request.email).first()
@@ -40,10 +43,14 @@ def login(login_request: schemes.LoginRequest, db: SessionLocal = Depends(get_db
     return {"auth_token": access_token, "token_type": "Bearer"}
 
 
+@app.post("/api/auth/token/logout/")
+def logout():
+    return {"message": "successful"}
+
+
 @app.get("/api/users/me/", response_model=schemes.UserGet)
 def get_current_user_profile(current_user: models.User = Depends(get_current_user)):
-    avatar = base64.b64encode(current_user.avatar).decode("utf-8") if current_user.avatar else ''
-    current_user.avatar = f"data:image/png;base64,{avatar}"
+    current_user.avatar = encode_image(current_user.avatar)
     return current_user
 
 
@@ -108,7 +115,7 @@ def update_avatar(avatar_data: schemes.AvatarUpload,
                   user: models.User = Depends(get_current_user),
                   db: SessionLocal = Depends(get_db)):
     try:
-        decoded_file = base64.b64decode(avatar_data.avatar.split(',')[1])
+        decoded_file = decode_image(avatar_data.avatar)
     except Exception:
         raise HTTPException(
             status_code=400,
@@ -124,3 +131,37 @@ def delete_avatar(user: models.User = Depends(get_current_user), db: SessionLoca
     user.avatar = None
     db.commit()
     return {"message": "Avatar deleted succesfully"}
+
+
+@app.get("/api/recipes/", response_model=List[schemes.RecipeResponse])
+def get_recipes(
+        page: int = 1,
+        limit: int = 6,
+        is_favorited: int = 0,
+        is_in_shopping_cart: int = 0,
+        author: Optional[int] = None,
+        tags: Optional[List[int]] = Query(None),
+        db: SessionLocal = Depends(get_db)
+):
+    query = db.query(models.Recipe)
+    if author:
+        query = query.filter(models.Recipe.author_id == author)
+    if tags:
+        query = query.filter(models.Recipe.tags.any(models.Tag.id.in_(tags)))
+    recipes = query.offset((page - 1) * limit).limit(limit).all()
+    return [
+        schemes.RecipeResponse(
+            id=recipe.id,
+            name=recipe.name,
+            image=encode_image(recipe.image),
+            cooking_time=recipe.cooking_time,
+            text=recipe.text,
+            tags=[tag.name for tag in recipe.tags]
+        )
+        for recipe in recipes
+    ]
+
+
+@app.get("/api/tags/")
+def get_tags():
+    return []

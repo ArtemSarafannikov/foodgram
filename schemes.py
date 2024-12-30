@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr
+from typing import List, Optional
 
 
 class Token(BaseModel):
@@ -38,3 +39,20 @@ class ResetPassword(BaseModel):
 
 class AvatarUpload(BaseModel):
     avatar: str
+
+
+class RecipeResponse(BaseModel):
+    id: int
+    name: str
+    image: Optional[str]
+    cooking_time: int
+    text: str
+    tags: List[str]
+
+
+class RecipeCreate(BaseModel):
+    name: str
+    image: Optional[str] = None
+    tags: List[int]
+    cooking_time: int
+    ingredients: List[dict]
