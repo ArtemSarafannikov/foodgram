@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile, Query
+from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile, Query, Request
 from fastapi.security import OAuth2PasswordBearer
 from database import SessionLocal, get_db
 from utility import *
@@ -29,6 +29,42 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: SessionLocal
     if not user:
         raise credentials_exception
     return user
+
+
+def get_recipe_response(recipe):
+    return schemes.RecipeResponse(
+        id=recipe.id,
+        tags=[
+            schemes.Tag(
+                id=tag.id,
+                name=tag.name,
+                color='#E26C2D',
+                slug=tag.slug
+            ) for tag in recipe.tags
+        ],
+        author=schemes.Author(
+            id=recipe.author.id,
+            email=recipe.author.email,
+            username=recipe.author.username,
+            first_name=recipe.author.first_name,
+            last_name=recipe.author.last_name,
+            is_subscribed=False
+        ),
+        ingredients=[
+            schemes.Ingredient(
+                id=ingredient.id,
+                name=ingredient.ingredient.name,
+                measurement_unit=ingredient.ingredient.measurement_unit,
+                amount=ingredient.amount
+            ) for ingredient in recipe.ingredients
+        ],
+        is_favorited=False,
+        is_in_shopping_cart=False,
+        name=recipe.name,
+        image=encode_image(recipe.image),
+        text=recipe.text,
+        cooking_time=recipe.cooking_time
+    )
 
 
 @app.post('/api/auth/token/login/', response_model=schemes.Token)
@@ -133,7 +169,7 @@ def delete_avatar(user: models.User = Depends(get_current_user), db: SessionLoca
     return {"message": "Avatar deleted succesfully"}
 
 
-@app.get("/api/recipes/", response_model=List[schemes.RecipeResponse])
+@app.get("/api/recipes/", response_model=schemes.RecipePaginationResponse)
 def get_recipes(
         page: int = 1,
         limit: int = 6,
@@ -141,6 +177,7 @@ def get_recipes(
         is_in_shopping_cart: int = 0,
         author: Optional[int] = None,
         tags: Optional[List[int]] = Query(None),
+        request: Request = None,
         db: SessionLocal = Depends(get_db)
 ):
     query = db.query(models.Recipe)
@@ -148,18 +185,40 @@ def get_recipes(
         query = query.filter(models.Recipe.author_id == author)
     if tags:
         query = query.filter(models.Recipe.tags.any(models.Tag.id.in_(tags)))
+
+    total = query.count()
     recipes = query.offset((page - 1) * limit).limit(limit).all()
-    return [
-        schemes.RecipeResponse(
-            id=recipe.id,
-            name=recipe.name,
-            image=encode_image(recipe.image),
-            cooking_time=recipe.cooking_time,
-            text=recipe.text,
-            tags=[tag.name for tag in recipe.tags]
+
+    results = []
+    for recipe in recipes:
+        results.append(get_recipe_response(recipe))
+
+    base_url = str(request.url).split("?")[0]
+    next_url = (
+        f"{base_url}?page={page + 1}&limit={limit}"
+        if (page * limit) < total else None
+    )
+    previous_url = (
+        f"{base_url}?page={page - 1}&limit={limit}"
+        if page > 1 else None
+    )
+    return schemes.RecipePaginationResponse(
+        count=total,
+        next=next_url,
+        previous=previous_url,
+        results=results
+    )
+
+
+@app.get("/api/recipes/{id}/", response_model=schemes.RecipeResponse)
+def get_recipe(id: int, db: SessionLocal = Depends(get_db)):
+    recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
+    if not recipe:
+        raise HTTPException(
+            status_code=404,
+            detail="No recipe with this id"
         )
-        for recipe in recipes
-    ]
+    return get_recipe_response(recipe)
 
 
 @app.get("/api/tags/")
