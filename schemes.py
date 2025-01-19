@@ -77,12 +77,22 @@ class RecipeResponse(BaseModel):
     cooking_time: int
 
 
+class IngredientSchema(BaseModel):
+    id: int
+    amount: int
+
+
 class RecipeCreate(BaseModel):
-    name: str
-    image: Optional[str] = None
+    ingredients: List[IngredientSchema]
     tags: List[int]
+    image: Optional[str] = None
+    name: str
+    text: str
     cooking_time: int
-    ingredients: List[dict]
+
+
+class RecipeUpdate(RecipeCreate):
+    id: int
 
 
 class RecipePaginationResponse(BaseModel):
@@ -90,3 +100,4 @@ class RecipePaginationResponse(BaseModel):
     next: Optional[str]
     previous: Optional[str]
     results: List[RecipeResponse]
+

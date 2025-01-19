@@ -31,7 +31,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: SessionLocal
     return user
 
 
-def get_recipe_response(recipe):
+def get_recipe_response(recipe, user=None):
     return schemes.RecipeResponse(
         id=recipe.id,
         tags=[
@@ -58,7 +58,8 @@ def get_recipe_response(recipe):
                 amount=ingredient.amount
             ) for ingredient in recipe.ingredients
         ],
-        is_favorited=False,
+        # TODO: make correct request to db
+        is_favorited=user.favourites.has(recipe_id=recipe.id) if user else False,
         is_in_shopping_cart=False,
         name=recipe.name,
         image=encode_image(recipe.image),
@@ -221,6 +222,125 @@ def get_recipe(id: int, db: SessionLocal = Depends(get_db)):
     return get_recipe_response(recipe)
 
 
+@app.post("/api/recipes/")
+def create_recipe(recipe_data: schemes.RecipeCreate,
+                  user: models.User = Depends(get_current_user),
+                  db: SessionLocal = Depends(get_db)):
+    image = decode_image(recipe_data.image)
+    db_recipe = models.Recipe(
+        name=recipe_data.name,
+        image=image,
+        cooking_time=recipe_data.cooking_time,
+        text=recipe_data.text,
+        author_id=user.id
+    )
+    db.add(db_recipe)
+    db.commit()
+    db.refresh(db_recipe)
+
+    for ingredient in recipe_data.ingredients:
+        db_ingredient = models.RecipeIngredient(
+            recipe_id=db_recipe.id,
+            ingredient_id=ingredient.id,
+            amount=ingredient.amount
+        )
+        db.add(db_ingredient)
+
+    for tag_id in recipe_data.tags:
+        db_tag = db.query(models.Tag).filter(models.Tag.id == tag_id).first()
+        if not db_tag:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tag not found"
+            )
+        db_recipe.tags.append(db_tag)
+    db.commit()
+
+    return get_recipe_response(db_recipe)
+
+
+@app.get("/api/ingredients/")
+def get_ingredients(name: str, db: SessionLocal = Depends(get_db)):
+    ingredients = db.query(models.Ingredient).filter(models.Ingredient.name.like(f"%{name}%")).all()
+    return ingredients
+
+
 @app.get("/api/tags/")
-def get_tags():
-    return []
+def get_tags(db: SessionLocal = Depends(get_db)):
+    tags = db.query(models.Tag).all()
+    return tags
+
+
+@app.patch("/api/recipes/{id}/")
+def update_recipe(id: int,
+                  recipe: schemes.RecipeUpdate,
+                  user: models.User = Depends(get_current_user),
+                  db: SessionLocal = Depends(get_db)):
+    db_recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
+    if not db_recipe:
+        raise HTTPException(
+            status_code=404,
+            detail="Recipe not found"
+        )
+    if db_recipe.author_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Haven't permission"
+        )
+
+    db_recipe.name = recipe.name
+    db_recipe.text = recipe.text
+    db_recipe.cooking_time = recipe.cooking_time
+    db_recipe.image = decode_image(recipe.image) if recipe.image != "" else None
+
+    db.query(models.RecipeIngredient).filter(models.RecipeIngredient.recipe_id == id).delete()
+    for ingredient in recipe.ingredients:
+        db_ingredient = models.RecipeIngredient(
+            recipe_id=db_recipe.id,
+            ingredient_id=ingredient.id,
+            amount=ingredient.amount
+        )
+        db.add(db_ingredient)
+
+    db.execute(models.recipe_tags.delete().where(models.recipe_tags.c.recipe_id == id))
+    for tag_id in recipe.tags:
+        db.execute(models.recipe_tags.insert().values(recipe_id=id, tag_id=tag_id))
+
+    db.commit()
+    db.refresh(db_recipe)
+    return get_recipe_response(db_recipe, user)
+
+
+@app.post("/api/recipes/{id}/favorite/")
+def add_to_favourite(id: int,
+                     user: models.User = Depends(get_current_user),
+                     db: SessionLocal = Depends(get_db)):
+    # favourite = models.favourite_recipes.insert().values(user_id=user.id, recipe_id=id)
+    db_recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
+    if not db_recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+    db_recipe.favourites.append(user)
+    db.commit()
+    return {"message": "Recipe added to favourites"}
+
+
+@app.delete("/api/recipes/{id}/favorite/")
+def remove_from_favourite(id: int,
+                          user: models.User = Depends(get_current_user),
+                          db: SessionLocal = Depends(get_db)):
+    db.execute(models.favourite_recipes.delete()
+               .where((models.favourite_recipes.c.user_id == user.id) & (models.favourite_recipes.c.recipe_id == id)))
+    db.commit()
+    return {"message": "Recipe removed from favourites"}
+
+
+@app.get("/test/")
+def remove_from_favourite(user: models.User = Depends(get_current_user),
+                          db: SessionLocal = Depends(get_db)):
+    recipe = db.query(models.Recipe).first()
+    q = db.query(models.favourite_recipes).filter(
+        (models.favourite_recipes.c.recipe_id == recipe.id) & (models.favourite_recipes.c.user_id == user.id)).first()
+    return {"exists": q != None}

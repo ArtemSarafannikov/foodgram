@@ -16,6 +16,7 @@ class User(Base):
     avatar = Column(LargeBinary, nullable=True)
 
     recipes = relationship("Recipe", back_populates="author")
+    favourites = relationship("Recipe", secondary="favourite_recipes", back_populates="favourites")
 
 
 class Ingredient(Base):
@@ -39,6 +40,7 @@ class Recipe(Base):
     author = relationship("User", back_populates="recipes")
     ingredients = relationship("RecipeIngredient", back_populates="recipe")
     tags = relationship("Tag", secondary="recipe_tags", back_populates="recipes")
+    favourites = relationship("User", secondary="favourite_recipes", back_populates="favourites")
 
 
 class RecipeIngredient(Base):
@@ -67,5 +69,10 @@ recipe_tags = Table(
     Column('tag_id', Integer, ForeignKey('tags.id'))
 )
 
+favourite_recipes = Table(
+    'favourite_recipes', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id')),
+    Column('recipe_id', Integer, ForeignKey('recipes.id'))
+)
 
 Base.metadata.create_all(bind=engine)
