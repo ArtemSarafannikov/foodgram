@@ -101,3 +101,19 @@ class RecipePaginationResponse(BaseModel):
     previous: Optional[str]
     results: List[RecipeResponse]
 
+
+class UserResponse(BaseModel):
+    email: str
+    id: int
+    username: str
+    first_name: str
+    last_name: str
+    is_subscribed: bool
+    avatar: Optional[str]
+
+
+class UserPaginationResponse(BaseModel):
+    count: int
+    next: Optional[str]
+    previous: Optional[str]
+    results: List[UserResponse]

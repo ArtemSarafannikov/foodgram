@@ -58,7 +58,7 @@ def get_recipe_response(recipe, user=None):
                 amount=ingredient.amount
             ) for ingredient in recipe.ingredients
         ],
-        # TODO: make correct request to db
+        # FIXME: make correct request to db
         is_favorited=user.favourites.has(recipe_id=recipe.id) if user else False,
         is_in_shopping_cart=False,
         name=recipe.name,
@@ -67,6 +67,17 @@ def get_recipe_response(recipe, user=None):
         cooking_time=recipe.cooking_time
     )
 
+def get_user_response(user):
+    return schemes.UserResponse(
+        email=user.email,
+        id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        # TODO: make logic
+        is_subscribed=False,
+        avatar=encode_image(user.avatar)
+    )
 
 @app.post('/api/auth/token/login/', response_model=schemes.Token)
 def login(login_request: schemes.LoginRequest, db: SessionLocal = Depends(get_db)):
@@ -87,8 +98,7 @@ def logout():
 
 @app.get("/api/users/me/", response_model=schemes.UserGet)
 def get_current_user_profile(current_user: models.User = Depends(get_current_user)):
-    current_user.avatar = encode_image(current_user.avatar)
-    return current_user
+    return get_user_response(current_user)
 
 
 @app.post("/api/users/", status_code=status.HTTP_201_CREATED)
@@ -117,9 +127,9 @@ def signup(user: schemes.UserCreate, db: SessionLocal = Depends(get_db)):
 
 @app.post("/api/users/set_password/")
 def change_password(password_data: schemes.ChangePassword,
-                    user: models.User = Depends(get_current_user),
+                    current_user: models.User = Depends(get_current_user),
                     db: SessionLocal = Depends(get_db)):
-    if not verify_password(password_data.current_password, user.hashed_password):
+    if not verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is wrong"
@@ -149,7 +159,7 @@ def reset_password(res_pas: schemes.ResetPassword, db: SessionLocal = Depends(ge
 
 @app.put("/api/users/me/avatar/")
 def update_avatar(avatar_data: schemes.AvatarUpload,
-                  user: models.User = Depends(get_current_user),
+                  current_user: models.User = Depends(get_current_user),
                   db: SessionLocal = Depends(get_db)):
     try:
         decoded_file = decode_image(avatar_data.avatar)
@@ -158,14 +168,14 @@ def update_avatar(avatar_data: schemes.AvatarUpload,
             status_code=400,
             detail="Invalid string"
         )
-    user.avatar = decoded_file
+    current_user.avatar = decoded_file
     db.commit()
     return {"message": "Avatar uploaded successfully"}
 
 
 @app.delete("/api/users/me/avatar/")
-def delete_avatar(user: models.User = Depends(get_current_user), db: SessionLocal = Depends(get_db)):
-    user.avatar = None
+def delete_avatar(current_user: models.User = Depends(get_current_user), db: SessionLocal = Depends(get_db)):
+    current_user.avatar = None
     db.commit()
     return {"message": "Avatar deleted succesfully"}
 
@@ -177,7 +187,7 @@ def get_recipes(
         is_favorited: int = 0,
         is_in_shopping_cart: int = 0,
         author: Optional[int] = None,
-        tags: Optional[List[int]] = Query(None),
+        tags: Optional[List[str]] = Query(None),
         request: Request = None,
         db: SessionLocal = Depends(get_db)
 ):
@@ -185,7 +195,7 @@ def get_recipes(
     if author:
         query = query.filter(models.Recipe.author_id == author)
     if tags:
-        query = query.filter(models.Recipe.tags.any(models.Tag.id.in_(tags)))
+        query = query.filter(models.Recipe.tags.any(models.Tag.slug.in_(tags)))
 
     total = query.count()
     recipes = query.offset((page - 1) * limit).limit(limit).all()
@@ -224,7 +234,7 @@ def get_recipe(id: int, db: SessionLocal = Depends(get_db)):
 
 @app.post("/api/recipes/")
 def create_recipe(recipe_data: schemes.RecipeCreate,
-                  user: models.User = Depends(get_current_user),
+                  current_user: models.User = Depends(get_current_user),
                   db: SessionLocal = Depends(get_db)):
     image = decode_image(recipe_data.image)
     db_recipe = models.Recipe(
@@ -232,7 +242,7 @@ def create_recipe(recipe_data: schemes.RecipeCreate,
         image=image,
         cooking_time=recipe_data.cooking_time,
         text=recipe_data.text,
-        author_id=user.id
+        author_id=current_user.id
     )
     db.add(db_recipe)
     db.commit()
@@ -265,16 +275,38 @@ def get_ingredients(name: str, db: SessionLocal = Depends(get_db)):
     return ingredients
 
 
+@app.get("/api/ingredients/{id}/")
+def get_ingredients(id: int, db: SessionLocal = Depends(get_db)):
+    ingredient = db.query(models.Ingredient).filter(models.Ingredient.id == id).first()
+    if not ingredient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Ingredient not found"
+        )
+    return ingredient
+
+
 @app.get("/api/tags/")
 def get_tags(db: SessionLocal = Depends(get_db)):
     tags = db.query(models.Tag).all()
     return tags
 
 
+@app.get("/api/tags/{id}/")
+def get_tag(id: int, db: SessionLocal = Depends(get_db)):
+    tag = db.query(models.Tag).filter(models.Tag.id == id).first()
+    if not tag:
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tag not found"
+        )
+    return tag
+
+
 @app.patch("/api/recipes/{id}/")
 def update_recipe(id: int,
                   recipe: schemes.RecipeUpdate,
-                  user: models.User = Depends(get_current_user),
+                  current_user: models.User = Depends(get_current_user),
                   db: SessionLocal = Depends(get_db)):
     db_recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
     if not db_recipe:
@@ -282,7 +314,7 @@ def update_recipe(id: int,
             status_code=404,
             detail="Recipe not found"
         )
-    if db_recipe.author_id != user.id:
+    if db_recipe.author_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Haven't permission"
@@ -308,12 +340,12 @@ def update_recipe(id: int,
 
     db.commit()
     db.refresh(db_recipe)
-    return get_recipe_response(db_recipe, user)
+    return get_recipe_response(db_recipe, current_user)
 
 
 @app.post("/api/recipes/{id}/favorite/")
 def add_to_favourite(id: int,
-                     user: models.User = Depends(get_current_user),
+                     current_user: models.User = Depends(get_current_user),
                      db: SessionLocal = Depends(get_db)):
     # favourite = models.favourite_recipes.insert().values(user_id=user.id, recipe_id=id)
     db_recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
@@ -322,25 +354,57 @@ def add_to_favourite(id: int,
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Recipe not found"
         )
-    db_recipe.favourites.append(user)
+    db_recipe.favourites.append(current_user)
     db.commit()
     return {"message": "Recipe added to favourites"}
 
 
 @app.delete("/api/recipes/{id}/favorite/")
 def remove_from_favourite(id: int,
-                          user: models.User = Depends(get_current_user),
+                          current_user: models.User = Depends(get_current_user),
                           db: SessionLocal = Depends(get_db)):
     db.execute(models.favourite_recipes.delete()
-               .where((models.favourite_recipes.c.user_id == user.id) & (models.favourite_recipes.c.recipe_id == id)))
+               .where((models.favourite_recipes.c.user_id == current_user.id) & (models.favourite_recipes.c.recipe_id == id)))
     db.commit()
     return {"message": "Recipe removed from favourites"}
 
 
-@app.get("/test/")
-def remove_from_favourite(user: models.User = Depends(get_current_user),
-                          db: SessionLocal = Depends(get_db)):
-    recipe = db.query(models.Recipe).first()
-    q = db.query(models.favourite_recipes).filter(
-        (models.favourite_recipes.c.recipe_id == recipe.id) & (models.favourite_recipes.c.user_id == user.id)).first()
-    return {"exists": q != None}
+@app.get("/api/users/{id}/", response_model=schemes.UserResponse)
+def get_user(id: int,
+             current_user: models.User = Depends(get_current_user),
+             db: SessionLocal = Depends(get_db)):
+    req_user = db.query(models.User).filter(models.User.id == id).first()
+    if not req_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return get_user_response(req_user)
+
+
+@app.get("/api/users/")
+def get_users(page: int = 1,
+              limit: int = 6,
+              request: Request = None,
+              db: SessionLocal = Depends(get_db)):
+    total = db.query(models.User).count()
+    users = db.query(models.User).offset((page - 1) * limit).limit(limit).all()
+    results = []
+    for user in users:
+        results.append(get_user_response(user))
+
+    base_url = str(request.url).split("?")[0]
+    next_url = (
+        f"{base_url}?page={page + 1}&limit={limit}"
+        if (page * limit) < total else None
+    )
+    previous_url = (
+        f"{base_url}?page={page - 1}&limit={limit}"
+        if page > 1 else None
+    )
+    return schemes.UserPaginationResponse(
+        count=total,
+        next=next_url,
+        previous=previous_url,
+        results=results
+    )
