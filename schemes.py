@@ -117,3 +117,10 @@ class UserPaginationResponse(BaseModel):
     next: Optional[str]
     previous: Optional[str]
     results: List[UserResponse]
+
+
+class ShoppingCartResponse(BaseModel):
+    id: int
+    name: str
+    image: str
+    cooking_time: int

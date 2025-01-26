@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, LargeBinary, Table
+from sqlalchemy import Column, Integer, String, ForeignKey, LargeBinary, Table, select
 from sqlalchemy.orm import declarative_base, relationship
 from database import engine
 
@@ -71,6 +71,12 @@ recipe_tags = Table(
 
 favourite_recipes = Table(
     'favourite_recipes', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id')),
+    Column('recipe_id', Integer, ForeignKey('recipes.id'))
+)
+
+shopping_cart = Table(
+    'shopping_cart', Base.metadata,
     Column('user_id', Integer, ForeignKey('users.id')),
     Column('recipe_id', Integer, ForeignKey('recipes.id'))
 )

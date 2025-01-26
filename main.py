@@ -1,9 +1,12 @@
-from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile, Query, Request
+from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile, Query, Request, Response
 from fastapi.security import OAuth2PasswordBearer
-from database import SessionLocal, get_db
+from sqlalchemy import select, text
+from database import SessionLocal, get_db, engine
 from utility import *
 from typing import List
+from io import StringIO
 
+import csv
 import base64
 import models
 import schemes
@@ -178,6 +181,34 @@ def delete_avatar(current_user: models.User = Depends(get_current_user), db: Ses
     current_user.avatar = None
     db.commit()
     return {"message": "Avatar deleted succesfully"}
+
+
+@app.get("/api/recipes/download_shopping_cart/")
+def download_shopping_cart(current_user: models.User = Depends(get_current_user)):
+    # TODO: make ORM query
+    # items = (db.execute(select(models.shopping_cart)
+    #                    .join(models.RecipeIngredient)
+    #                    .join(models.Ingredient)
+    #                    .group_by(models.Ingredient.id))
+    #          .fetchall())
+    with engine.connect() as connection:
+        items = connection.execute(text(f'''SELECT i.name, SUM(ri.amount) amount, i.measurement_unit
+                                        FROM shopping_cart sc
+                                        NATURAL JOIN recipe_ingredients ri
+                                        JOIN ingredients i ON ri.ingredient_id=i.id
+                                        WHERE sc.user_id={current_user.id}
+                                        GROUP BY i.id'''))
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Название", "Количество", "Единица измерения"])
+
+    for item in items:
+        writer.writerow([item.name, item.amount, item.measurement_unit])
+
+    response = Response(content=output.getvalue(), media_type="text/csv")
+    response.headers["Content-Disposition"] = "attachment; filename=shopping_cart.csv"
+    return response
 
 
 @app.get("/api/recipes/", response_model=schemes.RecipePaginationResponse)
@@ -408,3 +439,52 @@ def get_users(page: int = 1,
         previous=previous_url,
         results=results
     )
+
+
+@app.post("/api/recipes/{id}/shopping_cart/", response_model=schemes.ShoppingCartResponse, status_code=status.HTTP_201_CREATED)
+def add_to_shopping_cart(id: int,
+                         db: SessionLocal = Depends(get_db),
+                         current_user: models.User = Depends(get_current_user)):
+    db_recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
+    if not db_recipe:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Recipe not found"
+        )
+    exists = db.execute(select(models.shopping_cart)
+                        .where((models.shopping_cart.c.user_id == current_user.id) & (models.shopping_cart.c.recipe_id == id))
+                        ).fetchone()
+    if exists:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Already have recipe with ID={id} in shopping cart"
+        )
+    db_cart = models.shopping_cart.insert().values(user_id=current_user.id, recipe_id=id)
+    db.execute(db_cart)
+    db.commit()
+    return schemes.ShoppingCartResponse(
+        id=db_recipe.id,
+        name=db_recipe.name,
+        image=encode_image(db_recipe.image),
+        cooking_time=db_recipe.cooking_time
+    )
+
+
+@app.delete("/api/recipes/{id}/shopping_cart/", status_code=status.HTTP_204_NO_CONTENT)
+def remove_from_shopping_cart(id: int,
+                              db: SessionLocal = Depends(get_db),
+                              current_user: models.User = Depends(get_current_user)):
+    exists = db.execute(select(models.shopping_cart)
+                        .where(
+        (models.shopping_cart.c.user_id == current_user.id) & (models.shopping_cart.c.recipe_id == id))
+                        ).fetchone()
+    if not exists:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Haven't recipe with ID={id} in shopping cart"
+        )
+    db_cart = (models.shopping_cart.delete()
+               .where((models.shopping_cart.c.user_id == current_user.id) & (models.shopping_cart.c.recipe_id == id)))
+    db.execute(db_cart)
+    db.commit()
+    return
