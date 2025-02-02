@@ -4,6 +4,12 @@ from database import engine
 
 Base = declarative_base()
 
+user_subscriptions = Table(
+    'user_subscriptions', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id')),
+    Column('author_id', Integer, ForeignKey('users.id'))
+)
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -17,6 +23,12 @@ class User(Base):
 
     recipes = relationship("Recipe", back_populates="author")
     favourites = relationship("Recipe", secondary="favourite_recipes", back_populates="favourites")
+    shopping_cart = relationship("Recipe", secondary="shopping_cart", back_populates="shopping_cart")
+    subscriptions = relationship("User",
+                                 secondary="user_subscriptions",
+                                 back_populates="subscriptions",
+                                 primaryjoin=id == user_subscriptions.c.user_id,
+                                 secondaryjoin=id == user_subscriptions.c.author_id)
 
 
 class Ingredient(Base):
@@ -41,6 +53,7 @@ class Recipe(Base):
     ingredients = relationship("RecipeIngredient", back_populates="recipe")
     tags = relationship("Tag", secondary="recipe_tags", back_populates="recipes")
     favourites = relationship("User", secondary="favourite_recipes", back_populates="favourites")
+    shopping_cart = relationship("User", secondary="shopping_cart", back_populates="shopping_cart")
 
 
 class RecipeIngredient(Base):

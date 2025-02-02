@@ -119,8 +119,19 @@ class UserPaginationResponse(BaseModel):
     results: List[UserResponse]
 
 
-class ShoppingCartResponse(BaseModel):
+class RecipeShortDataResponse(BaseModel):
     id: int
     name: str
     image: str
     cooking_time: int
+
+
+class SubscribeResponse(UserResponse):
+    recipes: List[RecipeShortDataResponse]
+    recipes_count: int
+
+class SubscribePaginationResponse(BaseModel):
+    count: int
+    next: Optional[str]
+    previous: Optional[str]
+    results: List[SubscribeResponse]

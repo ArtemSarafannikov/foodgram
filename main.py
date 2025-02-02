@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, status, Body, File, UploadFile, Query, Request, Response
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy import select, text
+from sqlalchemy import select, text, and_
 from database import SessionLocal, get_db, engine
 from utility import *
 from typing import List
@@ -51,7 +51,7 @@ def get_recipe_response(recipe, user=None):
             username=recipe.author.username,
             first_name=recipe.author.first_name,
             last_name=recipe.author.last_name,
-            is_subscribed=False
+            is_subscribed=any(subscription.id == recipe.author.id for subscription in user.subscriptions) if user else False
         ),
         ingredients=[
             schemes.Ingredient(
@@ -61,8 +61,7 @@ def get_recipe_response(recipe, user=None):
                 amount=ingredient.amount
             ) for ingredient in recipe.ingredients
         ],
-        # FIXME: make correct request to db
-        is_favorited=user.favourites.has(recipe_id=recipe.id) if user else False,
+        is_favorited=any(favourite.id == recipe.id for favourite in user.favourites) if user else False,
         is_in_shopping_cart=False,
         name=recipe.name,
         image=encode_image(recipe.image),
@@ -70,16 +69,44 @@ def get_recipe_response(recipe, user=None):
         cooking_time=recipe.cooking_time
     )
 
-def get_user_response(user):
+
+def get_user_response(user, current_user=None):
     return schemes.UserResponse(
         email=user.email,
         id=user.id,
         username=user.username,
         first_name=user.first_name,
         last_name=user.last_name,
-        # TODO: make logic
-        is_subscribed=False,
+        is_subscribed=any(subscription.id == user.id for subscription in current_user.subscriptions) if current_user else False,
         avatar=encode_image(user.avatar)
+    )
+
+def get_subscription_response(author, recipes_limit):
+    author_recipes = author.recipes
+    recipes = []
+    recipes_count = 0
+
+    min_len = min(recipes_limit, len(author_recipes))
+    for i in range(min_len):
+        recipe = author_recipes[i]
+        recipes_count += 1
+        recipes.append(schemes.RecipeShortDataResponse(
+            id=recipe.id,
+            name=recipe.name,
+            image=encode_image(recipe.image),
+            cooking_time=recipe.cooking_time
+        ))
+
+    return schemes.SubscribeResponse(
+        email=author.email,
+        id=author.id,
+        username=author.username,
+        first_name=author.first_name,
+        last_name=author.last_name,
+        avatar=encode_image(author.avatar),
+        is_subscribed=True,
+        recipes=recipes,
+        recipes_count=recipes_count,
     )
 
 @app.post('/api/auth/token/login/', response_model=schemes.Token)
@@ -139,7 +166,7 @@ def change_password(password_data: schemes.ChangePassword,
         )
 
     hashed_password = get_password_hash(password_data.new_password)
-    user.hashed_password = hashed_password
+    current_user.hashed_password = hashed_password
     db.commit()
     return {"detail": "Password updated successfully"}
 
@@ -220,20 +247,25 @@ def get_recipes(
         author: Optional[int] = None,
         tags: Optional[List[str]] = Query(None),
         request: Request = None,
-        db: SessionLocal = Depends(get_db)
+        db: SessionLocal = Depends(get_db),
+        current_user: models.User = Depends(get_current_user)
 ):
     query = db.query(models.Recipe)
     if author:
         query = query.filter(models.Recipe.author_id == author)
     if tags:
         query = query.filter(models.Recipe.tags.any(models.Tag.slug.in_(tags)))
+    if is_favorited == 1:
+        query = query.filter(models.Recipe.favourites.any(id=current_user.id))
+    if is_in_shopping_cart == 1:
+        query = query.filter(models.Recipe.shopping_cart.any(id=current_user.id))
 
     total = query.count()
     recipes = query.offset((page - 1) * limit).limit(limit).all()
 
     results = []
     for recipe in recipes:
-        results.append(get_recipe_response(recipe))
+        results.append(get_recipe_response(recipe, current_user))
 
     base_url = str(request.url).split("?")[0]
     next_url = (
@@ -253,14 +285,14 @@ def get_recipes(
 
 
 @app.get("/api/recipes/{id}/", response_model=schemes.RecipeResponse)
-def get_recipe(id: int, db: SessionLocal = Depends(get_db)):
+def get_recipe(id: int, db: SessionLocal = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     recipe = db.query(models.Recipe).filter(models.Recipe.id == id).first()
     if not recipe:
         raise HTTPException(
             status_code=404,
             detail="No recipe with this id"
         )
-    return get_recipe_response(recipe)
+    return get_recipe_response(recipe, current_user)
 
 
 @app.post("/api/recipes/")
@@ -400,6 +432,35 @@ def remove_from_favourite(id: int,
     return {"message": "Recipe removed from favourites"}
 
 
+@app.get("/api/users/subscriptions/", response_model=schemes.SubscribePaginationResponse)
+def get_subscriptions(page: int = 1,
+                      limit: int = 6,
+                      recipes_limit: int = 5,
+                      request: Request = None,
+                      current_user: models.User = Depends(get_current_user)):
+    subs = current_user.subscriptions
+    results = []
+    total = 0
+    for sub in subs:
+        total += 1
+        results.append(get_subscription_response(sub, recipes_limit))
+
+    base_url = str(request.url).split("?")[0]
+    next_url = (
+        f"{base_url}?page={page + 1}&limit={limit}&recipes_limit={recipes_limit}"
+        if (page * limit) < total else None
+    )
+    previous_url = (
+        f"{base_url}?page={page - 1}&limit={limit}&recipes_limit={recipes_limit}"
+        if page > 1 else None
+    )
+    return schemes.UserPaginationResponse(
+        count=total,
+        next=next_url,
+        previous=previous_url,
+        results=results
+    )
+
 @app.get("/api/users/{id}/", response_model=schemes.UserResponse)
 def get_user(id: int,
              current_user: models.User = Depends(get_current_user),
@@ -410,7 +471,7 @@ def get_user(id: int,
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
-    return get_user_response(req_user)
+    return get_user_response(req_user, current_user)
 
 
 @app.get("/api/users/")
@@ -441,7 +502,7 @@ def get_users(page: int = 1,
     )
 
 
-@app.post("/api/recipes/{id}/shopping_cart/", response_model=schemes.ShoppingCartResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/api/recipes/{id}/shopping_cart/", response_model=schemes.RecipeShortDataResponse, status_code=status.HTTP_201_CREATED)
 def add_to_shopping_cart(id: int,
                          db: SessionLocal = Depends(get_db),
                          current_user: models.User = Depends(get_current_user)):
@@ -462,7 +523,7 @@ def add_to_shopping_cart(id: int,
     db_cart = models.shopping_cart.insert().values(user_id=current_user.id, recipe_id=id)
     db.execute(db_cart)
     db.commit()
-    return schemes.ShoppingCartResponse(
+    return schemes.RecipeShortDataResponse(
         id=db_recipe.id,
         name=db_recipe.name,
         image=encode_image(db_recipe.image),
@@ -486,5 +547,49 @@ def remove_from_shopping_cart(id: int,
     db_cart = (models.shopping_cart.delete()
                .where((models.shopping_cart.c.user_id == current_user.id) & (models.shopping_cart.c.recipe_id == id)))
     db.execute(db_cart)
+    db.commit()
+    return
+
+
+@app.post("/api/users/{id}/subscribe/", response_model=schemes.SubscribeResponse, status_code=status.HTTP_201_CREATED)
+def add_subscribe(id: int,
+                  recipes_limit: int = Body(default=6, embed=True),
+                  current_user: models.User = Depends(get_current_user),
+                  db: SessionLocal = Depends(get_db)):
+    author = db.query(models.User).filter(models.User.id == id).first()
+    if not author:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Author not found"
+        )
+    if id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can't subscribe yourself"
+        )
+    if author in current_user.subscriptions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Already have subscription to this user"
+        )
+
+    current_user.subscriptions.append(author)
+    db.commit()
+    return get_subscription_response(author, recipes_limit)
+
+
+@app.delete("/api/users/{id}/subscribe/", status_code=status.HTTP_204_NO_CONTENT)
+def unsubscribe(id: int,
+                current_user: models.User = Depends(get_current_user),
+                db: SessionLocal = Depends(get_db)):
+    author = db.query(models.User).filter(models.User.id == id).first()
+    if not author or author not in current_user.subscriptions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Haven't subscription for this user"
+        )
+    db.execute(models.user_subscriptions.delete().
+               where((models.user_subscriptions.c.user_id == current_user.id) &
+                     (models.user_subscriptions.c.author_id == id)))
     db.commit()
     return

@@ -9,7 +9,7 @@ import string
 
 SECRET_KEY = "41e9d135b735a3a92831c7918f011c0048bb927e9412ce3452b77d8096c6e331"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 24*60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
