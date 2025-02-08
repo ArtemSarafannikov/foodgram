@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, LargeBinary, Table, select
 from sqlalchemy.orm import declarative_base, relationship
-from database import engine
+from app.db.session import engine
 
 Base = declarative_base()
 
