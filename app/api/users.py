@@ -1,10 +1,7 @@
 from fastapi import APIRouter, Depends, status, HTTPException, Request, Body
-from app.utils.convert import encode_image, decode_image
-from app.db.session import SessionLocal, get_db
-from app.core.security import get_password_hash, get_current_user, verify_password
+from app.core.security import get_current_user
 import app.services.users as service
 import app.schemas.users as schuser
-import app.schemas.recipes as schrec
 import app.schemas.subscriptions as schsub
 import app.db.models as models
 from app.utils.errors import Error
@@ -120,8 +117,7 @@ def add_subscribe(id: int,
 
 @router.delete("/{id}/subscribe/", status_code=status.HTTP_204_NO_CONTENT)
 def unsubscribe(id: int,
-                current_user: models.User = Depends(get_current_user),
-                db: SessionLocal = Depends(get_db)):
+                current_user: models.User = Depends(get_current_user)):
     try:
         service.unsubscribe(id, current_user)
     except Error as e:

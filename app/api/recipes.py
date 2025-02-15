@@ -53,12 +53,6 @@ def get_recipe_response(recipe, user=None):
 
 @router.get("/download_shopping_cart/")
 def download_shopping_cart(current_user: models.User = Depends(get_current_user)):
-    # TODO: make ORM query
-    # items = (db.execute(select(models.shopping_cart)
-    #                    .join(models.RecipeIngredient)
-    #                    .join(models.Ingredient)
-    #                    .group_by(models.Ingredient.id))
-    #          .fetchall())
     with engine.connect() as connection:
         items = connection.execute(text(f'''SELECT i.name, SUM(ri.amount) amount, i.measurement_unit
                                         FROM shopping_cart sc

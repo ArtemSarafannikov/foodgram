@@ -1,22 +1,23 @@
-from fastapi import APIRouter, Depends, status, HTTPException
-from app.db.session import SessionLocal, get_db
-import app.db.models as models
+from fastapi import APIRouter, HTTPException
+from app.utils.errors import Error
+import app.services.ingredients as service
 
 router = APIRouter()
 
 
 @router.get("/")
-def get_ingredients(name: str, db: SessionLocal = Depends(get_db)):
-    ingredients = db.query(models.Ingredient).filter(models.Ingredient.name.like(f"%{name}%")).all()
+def get_ingredients(name: str):
+    ingredients = service.get_ingredients(name)
     return ingredients
 
 
 @router.get("/{id}/")
-def get_ingredients(id: int, db: SessionLocal = Depends(get_db)):
-    ingredient = db.query(models.Ingredient).filter(models.Ingredient.id == id).first()
-    if not ingredient:
+def get_ingredient(id: int):
+    try:
+        ingredient = service.get_ingredient(id)
+    except Error as e:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Ingredient not found"
+            status_code=e.code,
+            detail=e.message,
         )
     return ingredient

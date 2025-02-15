@@ -1,6 +1,5 @@
 from app.utils.convert import encode_image, decode_image
-from app.db.session import SessionLocal, get_db
-from fastapi import Depends, status, Request
+from fastapi import status, Request
 from app.core.security import get_password_hash, verify_password
 from app.utils.gen import generate_password
 from app.utils.errors import Error
@@ -70,8 +69,7 @@ def register_user(user: schuser.UserCreate) -> models.User:
 
 
 def change_password(password_data: schuser.ChangePassword,
-                    user: models.User,
-                    db: SessionLocal = Depends(get_db)) -> None:
+                    user: models.User) -> None:
     if not verify_password(password_data.current_password, user.hashed_password):
         raise Error(status.HTTP_401_UNAUTHORIZED, "Current password is wrong")
     hashed_password = get_password_hash(password_data.new_password)
@@ -80,27 +78,29 @@ def change_password(password_data: schuser.ChangePassword,
     repo.update_user(user, changed_user)
 
 
-def reset_password(res_pas: schuser.ResetPassword,
-                   db: SessionLocal = Depends(get_db)) -> str:
+def reset_password(res_pas: schuser.ResetPassword) -> str:
     ''' EXPERIMENTAL!!! DO NOT USE THIS IN PRODUCTION '''
     new_password = generate_password()
-    user = db.query(models.User).filter(models.User.email == res_pas.email).first()
-    if not user:
+    user = repo.get_users_by_email_username(res_pas.email, "")
+    if len(user) == 0:
         raise Error(status.HTTP_404_NOT_FOUND, "User with this email not found")
-    user.hashed_password = get_password_hash(new_password)
-    db.commit()
+    user = user[0]
+    hashed_password = get_password_hash(new_password)
+    changed_user = user
+    changed_user.hashed_password = hashed_password
+    repo.update_user(user, changed_user)
     return new_password
 
 
 def update_avatar(avatar_data: schuser.AvatarUpload,
-                  user: models.User,
-                  db: SessionLocal = Depends(get_db)) -> None:
+                  user: models.User) -> None:
+    changed_user = user
     if avatar_data.avatar != "":
         decoded_file = decode_image(avatar_data.avatar)
-        user.avatar = decoded_file
+        changed_user.avatar = decoded_file
     else:
-        user.avatar = None
-    db.commit()
+        changed_user.avatar = None
+    repo.update_user(user, changed_user)
 
 
 def get_subscription(page: int,
@@ -133,9 +133,8 @@ def get_subscription(page: int,
 
 
 def get_user(id: int,
-             user: models.User,
-             db: SessionLocal = Depends(get_db)) -> schsub.UserResponse:
-    req_user = db.query(models.User).filter(models.User.id == id).first()
+             user: models.User) -> schsub.UserResponse:
+    req_user = repo.get_user_by_id(id)
     if not req_user:
         raise Error(status.HTTP_404_NOT_FOUND, "User not found")
     return get_user_response(req_user, user)
@@ -143,10 +142,10 @@ def get_user(id: int,
 
 def get_users(page: int,
               limit: int,
-              request: Request,
-              db: SessionLocal = Depends(get_db)) -> schuser.UserPaginationResponse:
-    total = db.query(models.User).count()
-    users = db.query(models.User).offset((page - 1) * limit).limit(limit).all()
+              request: Request) -> schuser.UserPaginationResponse:
+    total = repo.get_count_users()
+    offset = (page - 1) * limit
+    users = repo.get_users_pagination(limit, offset)
     results = []
     for user in users:
         results.append(get_user_response(user))
@@ -170,9 +169,8 @@ def get_users(page: int,
 
 def add_subscribe(id: int,
                   recipes_limit: int,
-                  user: models.User,
-                  db: SessionLocal = Depends(get_db)) -> schsub.SubscribeResponse:
-    author = db.query(models.User).filter(models.User.id == id).first()
+                  user: models.User) -> schsub.SubscribeResponse:
+    author = repo.get_user_by_id(id)
     if not author:
         raise Error(status.HTTP_404_NOT_FOUND, "Author not found")
     if id == user.id:
@@ -180,18 +178,13 @@ def add_subscribe(id: int,
     if author in user.subscriptions:
         raise Error(status.HTTP_400_BAD_REQUEST, "Already have subscription to this user")
 
-    user.subscriptions.append(author)
-    db.commit()
+    repo.add_subscription(user, author)
     return get_subscription_response(author, recipes_limit)
 
 
 def unsubscribe(id: int,
-                user: models.User,
-                db: SessionLocal = Depends(get_db)) -> None:
-    author = db.query(models.User).filter(models.User.id == id).first()
+                user: models.User) -> None:
+    author = repo.get_user_by_id(id)
     if not author or author not in user.subscriptions:
         raise Error(status.HTTP_400_BAD_REQUEST, "Haven't subscription for this user")
-    db.execute(models.user_subscriptions.delete().
-               where((models.user_subscriptions.c.user_id == user.id) &
-                     (models.user_subscriptions.c.author_id == id)))
-    db.commit()
+    repo.delete_subscribe(user, author)
