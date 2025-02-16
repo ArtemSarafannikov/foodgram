@@ -43,3 +43,9 @@ class RecipeShortDataResponse(BaseModel):
     name: str
     image: str
     cooking_time: int
+
+
+class ShoppingCart(BaseModel):
+    name: str
+    amount: int
+    measurement_unit: str

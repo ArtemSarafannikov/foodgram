@@ -6,6 +6,7 @@ import app.schemas.auth as schemes
 
 repo = SQLiteRepo()
 
+
 def login(login_request: schemes.LoginRequest):
     user = repo.get_users_by_email_username(login_request.email, "")
     error = Error(status.HTTP_401_UNAUTHORIZED, "Incorrect email or password")
