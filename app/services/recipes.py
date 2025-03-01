@@ -1,6 +1,6 @@
 from app.utils.convert import encode_image, decode_image
 from app.repositories.sqlite_orm import SQLiteRepo
-from app.utils.errors import Error
+from app.utils.errors import *
 from fastapi import status
 from io import StringIO
 import csv
@@ -99,7 +99,7 @@ def get_recipes(page: int,
 def get_recipe(recipe_id: int, user: models.User):
     recipe = repo.get_recipe(recipe_id)
     if not recipe:
-        raise Error(status.HTTP_404_NOT_FOUND, "No recipe with this id")
+        raise recipe_not_found_err
     return get_recipe_response(recipe, user)
 
 
@@ -126,7 +126,7 @@ def create_recipe(recipe_data: schrec.RecipeCreate, user_id: int):
 
     ok = repo.save_tags_by_id_recipe(recipe, recipe_data.tags)
     if not ok:
-        raise Error(status.HTTP_404_NOT_FOUND, "Tag not found")
+        raise tag_not_found_err
 
     return get_recipe_response(recipe)
 
@@ -134,9 +134,9 @@ def create_recipe(recipe_data: schrec.RecipeCreate, user_id: int):
 def update_recipe(id: int, recipe_update: schrec.RecipeUpdate, user: models.User):
     recipe = repo.get_recipe(id)
     if not recipe:
-        raise Error(status.HTTP_404_NOT_FOUND, "Recipe not found")
+        raise recipe_not_found_err
     if recipe.author_id != user.id:
-        raise Error(status.HTTP_403_FORBIDDEN, "Permission denied")
+        raise permission_denied_err
 
     recipe.name = recipe.name
     recipe.text = recipe.text
@@ -154,7 +154,7 @@ def update_recipe(id: int, recipe_update: schrec.RecipeUpdate, user: models.User
     repo.save_ingredients_recipe(recipe.id, ingredients)
     ok = repo.save_tags_by_id_recipe(recipe, recipe_update.tags)
     if not ok:
-        raise Error(status.HTTP_404_NOT_FOUND, "Tag not found")
+        raise tag_not_found_err
 
     recipe = repo.update_recipe(recipe)
     return get_recipe_response(recipe, user)
@@ -163,7 +163,7 @@ def update_recipe(id: int, recipe_update: schrec.RecipeUpdate, user: models.User
 def add_favourite_recipe(recipe_id: int, user: models.User):
     recipe = repo.get_recipe(recipe_id)
     if not recipe:
-        raise Error(status.HTTP_404_NOT_FOUND, "Recipe not found")
+        raise recipe_not_found_err
     repo.add_favourite_recipe(recipe, user)
 
 
@@ -174,10 +174,10 @@ def delete_favourite_recipe(recipe_id: int, user: models.User):
 def add_to_shopping_cart(recipe_id: int, user: models.User):
     recipe = repo.get_recipe(recipe_id)
     if not recipe:
-        raise Error(status.HTTP_404_NOT_FOUND, "Recipe not found")
+        raise recipe_not_found_err
     exists = repo.is_recipe_in_shopping_cart(recipe_id, user.id)
     if exists:
-        raise Error(status.HTTP_400_BAD_REQUEST, f"Already have recipe with ID={recipe_id} in shopping cart")
+        raise already_in_shopping_cart_err
     repo.add_recipe_to_shopping_cart(recipe_id, user.id)
     return schrec.RecipeShortDataResponse(
             id=recipe.id,
@@ -190,5 +190,5 @@ def add_to_shopping_cart(recipe_id: int, user: models.User):
 def remove_from_shopping_cart(recipe_id: int, user: models.User):
     exists = repo.is_recipe_in_shopping_cart(recipe_id, user.id)
     if exists:
-        raise Error(status.HTTP_400_BAD_REQUEST, f"Haven't recipe with ID={recipe_id} in shopping cart")
+        raise havent_recipe_in_shopping_cart_err
     repo.delete_recipe_from_shopping_cart(recipe_id, user.id)
