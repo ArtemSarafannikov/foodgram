@@ -1,7 +1,6 @@
 from app.utils.convert import encode_image, decode_image
 from app.repositories.sqlite_orm import SQLiteRepo
 from app.utils.errors import *
-from fastapi import status
 from io import StringIO
 import csv
 import app.schemas.ingredients as sching
@@ -41,7 +40,7 @@ def get_recipe_response(recipe, user=None):
             ) for ingredient in recipe.ingredients
         ],
         is_favorited=any(favourite.id == recipe.id for favourite in user.favourites) if user else False,
-        is_in_shopping_cart=False,
+        is_in_shopping_cart=any(item.id == recipe.id for item in user.shopping_cart) if user else False,  # TODO: remake
         name=recipe.name,
         image=encode_image(recipe.image),
         text=recipe.text,

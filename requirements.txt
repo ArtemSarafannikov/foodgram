@@ -2,3 +2,5 @@ fastapi[all]==0.115.6
 sqlalchemy==2.0.36
 passlib[bcrypt]==1.7.4
 python-jose==3.3.0
+pytest
+coverage

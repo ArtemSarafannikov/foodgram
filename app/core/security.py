@@ -6,7 +6,6 @@ from jose import jwt, JWTError
 from typing import Optional
 import app.core.config as config
 
-# TODO: убрать
 from app.db.session import SessionLocal, get_db
 import app.db.models as models
 
@@ -46,7 +45,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: SessionLocal
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    # TODO: сделать получение пользователя в repositories
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
         raise credentials_exception
