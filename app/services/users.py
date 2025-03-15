@@ -7,9 +7,7 @@ import app.schemas.users as schuser
 import app.schemas.recipes as schrec
 import app.schemas.subscriptions as schsub
 import app.db.models as models
-from app.repositories.sqlite_orm import SQLiteRepo
-
-repo = SQLiteRepo()
+from app.repositories import repo
 
 
 def get_user_response(user: models.User, current_user: models.User=None) -> schuser.UserResponse:

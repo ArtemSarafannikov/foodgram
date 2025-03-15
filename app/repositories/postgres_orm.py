@@ -4,7 +4,7 @@ from app.utils.errors import Error
 from app.schemas.recipes import ShoppingCart, IngredientSchema
 from app.db.models import *
 
-class SQLiteRepo:
+class PostgresRepo:
     def get_session(self):
         db = SessionLocal()
         return db

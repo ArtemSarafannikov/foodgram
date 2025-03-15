@@ -1,5 +1,5 @@
 from app.utils.convert import encode_image, decode_image
-from app.repositories.sqlite_orm import SQLiteRepo
+from app.repositories import repo
 from app.utils.errors import *
 from io import StringIO
 import csv
@@ -8,8 +8,6 @@ import app.schemas.recipes as schrec
 import app.schemas.users as schuser
 import app.schemas.tags as schtag
 import app.db.models as models
-
-repo = SQLiteRepo()
 
 
 def get_recipe_response(recipe, user=None):

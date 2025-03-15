@@ -1,8 +1,6 @@
-from app.repositories.sqlite_orm import SQLiteRepo
+from app.repositories import repo
 from app.utils.errors import Error
 from fastapi import status
-
-repo = SQLiteRepo()
 
 
 def get_tags():

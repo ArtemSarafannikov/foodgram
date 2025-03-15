@@ -1,10 +1,8 @@
-from app.repositories.sqlite_orm import SQLiteRepo
+from app.repositories import repo
 from app.utils.errors import Error
 from app.core.security import verify_password, create_access_token
 from fastapi import status
 import app.schemas.auth as schemes
-
-repo = SQLiteRepo()
 
 
 def login(login_request: schemes.LoginRequest):
