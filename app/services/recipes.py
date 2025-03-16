@@ -11,6 +11,7 @@ import app.db.models as models
 
 
 def get_recipe_response(recipe, user=None):
+    author = repo.get_recipe_author(recipe.id)
     return schrec.RecipeResponse(
         id=recipe.id,
         tags=[
@@ -19,26 +20,28 @@ def get_recipe_response(recipe, user=None):
                 name=tag.name,
                 color='#E26C2D',
                 slug=tag.slug
-            ) for tag in recipe.tags
+            ) for tag in repo.get_recipe_tags(recipe.id)
         ],
         author=schuser.Author(
-            id=recipe.author.id,
-            email=recipe.author.email,
-            username=recipe.author.username,
-            first_name=recipe.author.first_name,
-            last_name=recipe.author.last_name,
-            is_subscribed=any(subscription.id == recipe.author.id for subscription in user.subscriptions) if user else False
+            id=author.id,
+            email=author.email,
+            username=author.username,
+            first_name=author.first_name,
+            last_name=author.last_name,
+            is_subscribed=repo.is_subscribed(user.id, recipe) if user else False,
         ),
         ingredients=[
             sching.Ingredient(
-                id=ingredient.id,
-                name=ingredient.ingredient.name,
-                measurement_unit=ingredient.ingredient.measurement_unit,
-                amount=ingredient.amount
-            ) for ingredient in recipe.ingredients
+                id=ingredient[0].id,
+                name=ingredient[0].name,
+                measurement_unit=ingredient[0].measurement_unit,
+                amount=ingredient[1]
+            ) for ingredient in repo.get_recipe_ingredients(recipe.id)
         ],
-        is_favorited=any(favourite.id == recipe.id for favourite in user.favourites) if user else False,
-        is_in_shopping_cart=any(item.id == recipe.id for item in user.shopping_cart) if user else False,  # TODO: remake
+        # is_favorited=any(favourite.id == recipe.id for favourite in user.favourites) if user else False,
+        is_favorited=False,
+        is_in_shopping_cart=False,
+        # is_in_shopping_cart=any(item.id == recipe.id for item in user.shopping_cart) if user else False,  # TODO: remake
         name=recipe.name,
         image=encode_image(recipe.image),
         text=recipe.text,
