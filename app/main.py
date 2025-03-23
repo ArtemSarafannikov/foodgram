@@ -11,4 +11,4 @@ API.include_router(users.router, prefix="/api/users")
 
 @API.get("/test")
 def test():
-    return {"test": "test"}
+    return {"test": "test2"}
